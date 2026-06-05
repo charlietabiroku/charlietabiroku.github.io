@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tennis Voice Counter</title>
+<style>
+body{font-family:sans-serif;text-align:center;background:#0b1d2a;color:#fff}
+button{font-size:20px;padding:20px;margin:10px;border-radius:10px;border:none}
+#pointA{background:#1e88e5}
+#pointB{background:#e53935}
+#audioButton{background:#555}
+#modeButton{background:#888}
+</style>
+</head>
+<body>
+<h1>テニス音声カウント</h1>
+<p id="score">0 - 0</p>
+<p id="mode">デュース</p>
+<button id="audioButton">音声ON</button><br>
+<button id="pointA">Server +</button>
+<button id="pointB">Receiver +</button><br>
+<button id="modeButton">モード切替</button>
+
+<script>
+let scoreA = 0;
+let scoreB = 0;
+let audioEnabled = false;
+let currentAudio = null;
+let deuceMode = true;
+
+const scoreNumbers = [0, 15, 30, 40];
+const scoreNames = ["love", "fifteen", "thirty", "forty"];
+
+function initAudio() {
+  const audio = new Audio("audio/love-all.mp3");
+  audio.play().then(() => {
+    audio.pause();
+    audioEnabled = true;
+    document.getElementById("audioButton").innerText = "音声ON済み";
+  }).catch(() => {
+    alert("音声ONをもう一度押してください");
+  });
+}
+
+function playAudio(name) {
+  if (!audioEnabled) return;
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
+  }
+  currentAudio = new Audio("audio/" + name + ".mp3");
+  currentAudio.play().catch(() => {});
+}
+
+function getScoreCall() {
+  if (scoreA === scoreB) {
+    if (scoreA === 0) return "love-all";
+    if (scoreA === 1) return "fifteen-all";
+    if (scoreA === 2) return "thirty-all";
+    if (scoreA >= 3) return deuceMode ? "deuce" : "forty-all";
+  }
+
+  if (deuceMode && scoreA >= 3 && scoreB >= 3) {
+    if (scoreA === scoreB) return "deuce";
+    return scoreA > scoreB ? "advantage-server" : "advantage-receiver";
+  }
+
+  return scoreNames[Math.min(scoreA,3)] + "-" + scoreNames[Math.min(scoreB,3)];
+}
+
+function isGameOver(player) {
+  if (deuceMode) {
+    if ((scoreA >= 4 || scoreB >= 4) && Math.abs(scoreA - scoreB) >= 2) return true;
+  } else {
+    if (scoreA >= 3 || scoreB >= 3) return true;
+  }
+  return false;
+}
+
+function updateDisplay() {
+  document.getElementById("score").innerText =
+    scoreNumbers[Math.min(scoreA,3)] + " - " +
+    scoreNumbers[Math.min(scoreB,3)];
+
+  document.getElementById("mode").innerText =
+    deuceMode ? "デュース" : "ノーデュース";
+}
+
+function resetScore() {
+  scoreA = 0;
+  scoreB = 0;
+  updateDisplay();
+}
+
+function addPoint(player) {
+  if (player === "A") scoreA++;
+  if (player === "B") scoreB++;
+
+  if (navigator.vibrate) navigator.vibrate(80);
+
+  if (isGameOver(player)) {
+    playAudio(player === "A" ? "game-server" : "game-receiver");
+    resetScore();
+    return;
+  }
+
+  playAudio(getScoreCall());
+  updateDisplay();
+}
+
+function toggleMode() {
+  deuceMode = !deuceMode;
+  updateDisplay();
+}
+
+
+document.getElementById("audioButton").onclick = initAudio;
+document.getElementById("pointA").onclick = () => addPoint("A");
+document.getElementById("pointB").onclick = () => addPoint("B");
+document.getElementById("modeButton").onclick = toggleMode;
+
+updateDisplay();
+</script>
+</body>
+</html>
