@@ -156,7 +156,7 @@ function App() {
         const entries = await fetchEntries()
         if (!mounted) return
         if (entries.length > 0) {
-          setRecords(entries)
+          setRecords([...recordSeed, ...entries])
         }
         setSyncState('Supabase同期済み')
       } catch (error) {
