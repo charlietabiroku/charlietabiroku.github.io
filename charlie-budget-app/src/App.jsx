@@ -106,6 +106,12 @@ const recordSeed = [
   week,
 }))
 
+function addOneDay(dateString) {
+  const date = new Date(`${dateString}T00:00:00`)
+  date.setDate(date.getDate() + 1)
+  return date.toISOString().slice(0, 10)
+}
+
 function calcSummary(records, settings) {
   const monthly = monthRanges.map((month) => {
     const total = records
@@ -221,8 +227,12 @@ function App() {
     }
 
     setRecords((current) => [...current, record])
-    setSettings((current) => ({ ...current, selectedMonth: monthRange.label }))
-    setForm((current) => ({ ...current, amount: '' }))
+    const nextDate = addOneDay(form.date)
+    const nextMonthRange =
+      monthRanges.find((month) => nextDate >= month.start && nextDate <= month.end) ?? monthRange
+
+    setSettings((current) => ({ ...current, selectedMonth: nextMonthRange.label }))
+    setForm((current) => ({ ...current, date: nextDate, amount: '' }))
 
     if (!isSupabaseConfigured) return
 
