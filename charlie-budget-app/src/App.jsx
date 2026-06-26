@@ -7,7 +7,13 @@ import {
   WalletCards,
 } from 'lucide-react'
 import './App.css'
-import { fetchEntries, insertEntry, isSupabaseConfigured } from './supabaseClient'
+import {
+  fetchEntries,
+  fetchMonthlySettings,
+  insertEntry,
+  isSupabaseConfigured,
+  saveMonthlyIncome,
+} from './supabaseClient'
 
 const yen = new Intl.NumberFormat('ja-JP', {
   style: 'currency',
@@ -29,6 +35,7 @@ const settingsSeed = {
   monthlyBudget: 14000,
   weeklyBudget: 3150,
   dailyLimit: 500,
+  defaultIncome: 24711,
   selectedMonth: '2026年6月',
   monthStartDay: 10,
 }
@@ -137,6 +144,9 @@ function calcSummary(records, settings) {
 
 function App() {
   const [settings, setSettings] = useState(settingsSeed)
+  const [monthlyIncome, setMonthlyIncome] = useState(
+    Object.fromEntries(monthRanges.map((month) => [month.label, settingsSeed.defaultIncome])),
+  )
   const [records, setRecords] = useState(recordSeed)
   const [syncState, setSyncState] = useState(
     isSupabaseConfigured ? 'Supabase同期中' : 'ローカル保存',
@@ -153,11 +163,15 @@ function App() {
       if (!isSupabaseConfigured) return
 
       try {
-        const entries = await fetchEntries()
+        const [entries, savedMonthlyIncome] = await Promise.all([
+          fetchEntries(),
+          fetchMonthlySettings(),
+        ])
         if (!mounted) return
         if (entries.length > 0) {
           setRecords([...recordSeed, ...entries])
         }
+        setMonthlyIncome((current) => ({ ...current, ...savedMonthlyIncome }))
         setSyncState('Supabase同期済み')
       } catch (error) {
         console.error(error)
@@ -178,7 +192,7 @@ function App() {
   const selectedRecords = records
     .filter((record) => record.month === selectedMonth.label)
     .sort((a, b) => b.date.localeCompare(a.date))
-  const income = settings.salary + settings.commission
+  const income = monthlyIncome[selectedMonth.label] ?? settings.defaultIncome
   const freeCash = income - settings.rent - settings.savingsTransfer
   const possibleSavings = Math.max(0, freeCash - selectedMonth.total)
   const usage = Math.min(selectedMonth.total / settings.monthlyBudget, 1)
@@ -219,6 +233,25 @@ function App() {
           current.map((item) => (item.id === record.id ? { ...item, id: inserted.id } : item)),
         )
       }
+      setSyncState('Supabase同期済み')
+    } catch (error) {
+      console.error(error)
+      setSyncState('ローカル保存')
+    }
+  }
+
+  async function updateMonthlyIncome(event) {
+    const income = Number(event.target.value)
+    const nextIncome = Number.isFinite(income) ? income : 0
+    const month = selectedMonth.label
+
+    setMonthlyIncome((current) => ({ ...current, [month]: nextIncome }))
+
+    if (!isSupabaseConfigured) return
+
+    try {
+      setSyncState('Supabase同期中')
+      await saveMonthlyIncome(month, nextIncome)
       setSyncState('Supabase同期済み')
     } catch (error) {
       console.error(error)
@@ -329,7 +362,16 @@ function App() {
               <WalletCards size={22} />
             </div>
             <div className="metric-list">
-              <Metric label="総収入" value={yen.format(income)} />
+              <label className="income-field">
+                <span>総収入</span>
+                <input
+                  inputMode="decimal"
+                  min="0"
+                  onChange={updateMonthlyIncome}
+                  type="number"
+                  value={income}
+                />
+              </label>
               <Metric label="固定費後" value={yen.format(freeCash)} />
               <Metric label="家賃" value={yen.format(settings.rent)} />
             </div>
