@@ -50,6 +50,20 @@ export async function fetchEntries() {
   }))
 }
 
+export async function fetchMonthlySettings() {
+  if (!supabase) return {}
+
+  const user = await ensureAnonymousSession()
+  const { data, error } = await supabase
+    .from('budget_month_settings')
+    .select('month_tag, income')
+    .eq('user_id', user.id)
+
+  if (error) throw error
+
+  return Object.fromEntries(data.map((setting) => [setting.month_tag, Number(setting.income)]))
+}
+
 export async function insertEntry(record) {
   if (!supabase) return null
 
@@ -68,4 +82,24 @@ export async function insertEntry(record) {
 
   if (error) throw error
   return data
+}
+
+export async function saveMonthlyIncome(month, income) {
+  if (!supabase) return null
+
+  const user = await ensureAnonymousSession()
+  const { error } = await supabase.from('budget_month_settings').upsert(
+    {
+      user_id: user.id,
+      month_tag: month,
+      income,
+      updated_at: new Date().toISOString(),
+    },
+    {
+      onConflict: 'user_id,month_tag',
+    },
+  )
+
+  if (error) throw error
+  return true
 }
