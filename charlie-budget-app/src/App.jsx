@@ -29,13 +29,13 @@ const preciseYen = new Intl.NumberFormat('ja-JP', {
 
 const settingsSeed = {
   salary: 23000,
-  commission: 1711,
+  commission: 0,
   rent: 5250,
   savingsTransfer: 6000,
   monthlyBudget: 14000,
   weeklyBudget: 3150,
   dailyLimit: 500,
-  defaultIncome: 24711,
+  defaultIncome: 23000,
   selectedMonth: '2026年6月',
   monthStartDay: 10,
 }
@@ -198,6 +198,7 @@ function App() {
   const usage = Math.min(selectedMonth.total / settings.monthlyBudget, 1)
   const overDays = selectedRecords.filter((record) => record.amount > settings.dailyLimit).length
   const averageSpend = selectedRecords.length ? selectedMonth.total / selectedRecords.length : 0
+  const commission = Math.max(0, income - settings.salary)
 
   async function addRecord(event) {
     event.preventDefault()
@@ -240,9 +241,10 @@ function App() {
     }
   }
 
-  async function updateMonthlyIncome(event) {
-    const income = Number(event.target.value)
-    const nextIncome = Number.isFinite(income) ? income : 0
+  async function updateMonthlyCommission(event) {
+    const commission = Number(event.target.value)
+    const nextCommission = Number.isFinite(commission) ? commission : 0
+    const nextIncome = settings.salary + nextCommission
     const month = selectedMonth.label
 
     setMonthlyIncome((current) => ({ ...current, [month]: nextIncome }))
@@ -362,18 +364,22 @@ function App() {
               <WalletCards size={22} />
             </div>
             <div className="metric-list">
+              <Metric label="固定給" value={yen.format(settings.salary)} />
               <label className="income-field">
-                <span>総収入</span>
+                <span>歩合</span>
                 <input
                   inputMode="decimal"
                   min="0"
-                  onChange={updateMonthlyIncome}
+                  onChange={updateMonthlyCommission}
+                  placeholder="0"
                   type="number"
-                  value={income}
+                  value={commission || ''}
                 />
               </label>
+              <Metric label="総収入" value={yen.format(income)} strong />
               <Metric label="固定費後" value={yen.format(freeCash)} />
               <Metric label="家賃" value={yen.format(settings.rent)} />
+              <Metric label="貯金口座移動" value={yen.format(settings.savingsTransfer)} />
             </div>
           </section>
 
