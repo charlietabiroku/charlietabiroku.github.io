@@ -40,3 +40,36 @@ create policy "Users can delete their own budget entries"
   for delete
   to authenticated
   using (user_id = auth.uid());
+
+create table if not exists public.budget_month_settings (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  month_tag text not null,
+  income numeric(12, 2) not null check (income >= 0),
+  updated_at timestamptz not null default now(),
+  unique (user_id, month_tag)
+);
+
+create index if not exists budget_month_settings_user_month_idx
+  on public.budget_month_settings (user_id, month_tag);
+
+alter table public.budget_month_settings enable row level security;
+
+create policy "Users can read their own month settings"
+  on public.budget_month_settings
+  for select
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Users can insert their own month settings"
+  on public.budget_month_settings
+  for insert
+  to authenticated
+  with check (user_id = auth.uid());
+
+create policy "Users can update their own month settings"
+  on public.budget_month_settings
+  for update
+  to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
