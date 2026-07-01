@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   CalendarDays,
   CircleDollarSign,
@@ -13,6 +13,7 @@ import {
   insertEntry,
   isSupabaseConfigured,
   saveMonthlyIncome,
+  subscribeToBudgetUpdates,
 } from './supabaseClient'
 
 const yen = new Intl.NumberFormat('ja-JP', {
@@ -55,6 +56,10 @@ const monthRanges = [
   ['2027年4月', '2027-04-10', '2027-05-09', 3150],
   ['2027年5月', '2027-05-10', '2027-06-09', 3150],
 ].map(([label, start, end, budget]) => ({ label, start, end, budget }))
+
+const monthlyIncomeSeed = Object.fromEntries(
+  monthRanges.map((month) => [month.label, settingsSeed.defaultIncome]),
+)
 
 const recordSeed = [
   ['2026-05-10', 313.05, '2026年5月', 1],
@@ -116,6 +121,12 @@ function addOneDay(dateString) {
   return `${year}-${month}-${day}`
 }
 
+function countDays(startDate, endDate) {
+  const start = new Date(`${startDate}T00:00:00`)
+  const end = new Date(`${endDate}T00:00:00`)
+  return Math.max(0, Math.floor((end - start) / 86400000) + 1)
+}
+
 function calcSummary(records, settings) {
   const monthly = monthRanges.map((month) => {
     const total = records
@@ -154,9 +165,7 @@ function calcSummary(records, settings) {
 
 function App() {
   const [settings, setSettings] = useState(settingsSeed)
-  const [monthlyIncome, setMonthlyIncome] = useState(
-    Object.fromEntries(monthRanges.map((month) => [month.label, settingsSeed.defaultIncome])),
-  )
+  const [monthlyIncome, setMonthlyIncome] = useState(monthlyIncomeSeed)
   const [records, setRecords] = useState(recordSeed)
   const [syncState, setSyncState] = useState(
     isSupabaseConfigured ? 'Supabase同期中' : 'ローカル保存',
@@ -166,35 +175,51 @@ function App() {
     amount: '',
   })
 
+  const refreshBudgetData = useCallback(async ({ quiet = false } = {}) => {
+    if (!isSupabaseConfigured) return
+
+    try {
+      if (!quiet) setSyncState('Supabase同期中')
+      const [entries, savedMonthlyIncome] = await Promise.all([
+        fetchEntries(),
+        fetchMonthlySettings(),
+      ])
+
+      setRecords(entries.length > 0 ? [...recordSeed, ...entries] : recordSeed)
+      setMonthlyIncome({ ...monthlyIncomeSeed, ...savedMonthlyIncome })
+      setSyncState('Supabase同期済み')
+    } catch (error) {
+      console.error(error)
+      setSyncState('ローカル保存')
+    }
+  }, [])
+
   useEffect(() => {
     let mounted = true
+    let unsubscribe = null
 
-    async function loadEntries() {
+    async function loadBudgetData() {
       if (!isSupabaseConfigured) return
 
       try {
-        const [entries, savedMonthlyIncome] = await Promise.all([
-          fetchEntries(),
-          fetchMonthlySettings(),
-        ])
+        await refreshBudgetData()
         if (!mounted) return
-        if (entries.length > 0) {
-          setRecords([...recordSeed, ...entries])
-        }
-        setMonthlyIncome((current) => ({ ...current, ...savedMonthlyIncome }))
-        setSyncState('Supabase同期済み')
+        unsubscribe = await subscribeToBudgetUpdates(() => {
+          refreshBudgetData({ quiet: true })
+        })
       } catch (error) {
         console.error(error)
         if (mounted) setSyncState('ローカル保存')
       }
     }
 
-    loadEntries()
+    loadBudgetData()
 
     return () => {
       mounted = false
+      if (unsubscribe) unsubscribe()
     }
-  }, [])
+  }, [refreshBudgetData])
 
   const summary = useMemo(() => calcSummary(records, settings), [records, settings])
   const selectedMonth =
@@ -205,9 +230,18 @@ function App() {
   const income = monthlyIncome[selectedMonth.label] ?? settings.defaultIncome
   const freeCash = income - settings.rent - settings.savingsTransfer
   const possibleSavings = Math.max(0, freeCash - selectedMonth.total)
-  const usage = Math.min(selectedMonth.total / settings.monthlyBudget, 1)
+  const usage = selectedMonth.total / settings.monthlyBudget
+  const ringUsage = Math.min(usage, 1)
+  const isOverBudget = usage > 1
   const overDays = selectedRecords.filter((record) => record.amount > settings.dailyLimit).length
   const averageSpend = selectedRecords.length ? selectedMonth.total / selectedRecords.length : 0
+  const remainingDays =
+    form.date >= selectedMonth.start && form.date <= selectedMonth.end
+      ? countDays(form.date, selectedMonth.end)
+      : countDays(selectedMonth.start, selectedMonth.end)
+  const dailyPaceLimit =
+    selectedMonth.remaining > 0 && remainingDays > 0 ? selectedMonth.remaining / remainingDays : 0
+  const showAverageWarning = averageSpend > settings.dailyLimit
   const commission = Math.max(0, income - settings.salary)
 
   async function addRecord(event) {
@@ -248,6 +282,7 @@ function App() {
           current.map((item) => (item.id === record.id ? { ...item, id: inserted.id } : item)),
         )
       }
+      await refreshBudgetData()
       setSyncState('Supabase同期済み')
     } catch (error) {
       console.error(error)
@@ -268,6 +303,7 @@ function App() {
     try {
       setSyncState('Supabase同期中')
       await saveMonthlyIncome(month, nextIncome)
+      await refreshBudgetData()
       setSyncState('Supabase同期済み')
     } catch (error) {
       console.error(error)
@@ -345,6 +381,17 @@ function App() {
           <Metric label="平均" value={preciseYen.format(averageSpend)} />
         </section>
 
+        {showAverageWarning && (
+          <section className="budget-alert">
+            <strong>平均が{yen.format(settings.dailyLimit)}を超えています</strong>
+            <span>
+              {selectedMonth.remaining <= 0
+                ? 'すでに月予算を超過しています。'
+                : `残り${remainingDays}日は1日あたり${preciseYen.format(dailyPaceLimit)}以内にしないと予算オーバーします。`}
+            </span>
+          </section>
+        )}
+
         <section className="simple-grid">
           <section className="panel budget-panel">
             <div className="panel-heading">
@@ -357,7 +404,10 @@ function App() {
               </span>
             </div>
             <div className="budget-body">
-              <div className="ring" style={{ '--progress': `${usage * 360}deg` }}>
+              <div
+                className={isOverBudget ? 'ring danger' : 'ring'}
+                style={{ '--progress': `${ringUsage * 360}deg` }}
+              >
                 <strong>{Math.round(usage * 100)}%</strong>
                 <span>使用率</span>
               </div>

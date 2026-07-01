@@ -73,3 +73,26 @@ create policy "Users can update their own month settings"
   to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'budget_entries'
+  ) then
+    alter publication supabase_realtime add table public.budget_entries;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'budget_month_settings'
+  ) then
+    alter publication supabase_realtime add table public.budget_month_settings;
+  end if;
+end $$;

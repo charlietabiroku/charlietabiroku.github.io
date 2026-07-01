@@ -64,6 +64,39 @@ export async function fetchMonthlySettings() {
   return Object.fromEntries(data.map((setting) => [setting.month_tag, Number(setting.income)]))
 }
 
+export async function subscribeToBudgetUpdates(onChange) {
+  if (!supabase) return null
+
+  const user = await ensureAnonymousSession()
+  const channel = supabase
+    .channel(`budget-updates-${user.id}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'budget_entries',
+        filter: `user_id=eq.${user.id}`,
+      },
+      onChange,
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'budget_month_settings',
+        filter: `user_id=eq.${user.id}`,
+      },
+      onChange,
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}
+
 export async function insertEntry(record) {
   if (!supabase) return null
 
